@@ -1,53 +1,20 @@
 {
-		"$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
-		"name": "dodge-framework-ng",
-		"version-string": "1.0.0",
-		"port-version": 0,
-		"description": "A SKSE plugin to trigger dodge animation.",
-		"homepage": "https://www.skyrimng.com",
-		"license": "Apache-2.0",
-		"features": {
-				"scripts": {
-						"description": "Install Papyrus sources for this program to develop on top of it."
-				},
-				"scripts-dev": {
-						"description": "Install Papyrus sources necessary to develop scripts for this plugin.",
-						"dependencies": [
-								"bethesda-skyrim-scripts",
-								{
-										"name": "skse",
-										"default-features": false,
-										"features": [
-												"scripts"
-										]
-								}
-						]
-				},
-				"plugin": {
-						"description": "Build the SKSE plugin.",
-						"dependencies": [
-							"commonlibsse-ng",
-								"span-lite",
-								"tomlplusplus"
-						]
-				},
-				"tests": {
-						"description": "Build tests for the SKSE plugin.",
-						"dependencies": [
-								{
-										"name": "dodge-framework-ng",
-										"default-features": false,
-										"features": [
-												"plugin"
-										]
-								},
-								"catch2"
-						]
-				}
-		},
-		"default-features": [
-				"scripts-dev",
-				"plugin",
-				"tests"
-		]
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
+  "name": "dynamic-animation-casting",
+  "version-string": "3.2.5",
+  "description": "A SKSE plugin to trigger spells on animation events.",
+  "license": "GPL-3.0-or-later",
+  "builtin-baseline": "ee12231b20c95013c6638d845d04c91559a1d1ff",
+  "dependencies": [
+    { "name": "directxmath", "version>=": "2025-04-03" },
+    { "name": "directxtk", "version>=": "2025-10-27" },
+    { "name": "fmt", "version>=": "12.1.0" },
+    { "name": "nlohmann-json", "version>=": "3.12.0" },
+    { "name": "rapidcsv", "version>=": "8.90" },
+    { "name": "simpleini", "version>=": "4.25" },
+    { "name": "spdlog", "version>=": "1.16.0" },
+    { "name": "toml11", "version>=": "4.4.0" },
+    "tomlplusplus",
+    { "name": "xbyak", "version>=": "7.28" }
+  ]
 }

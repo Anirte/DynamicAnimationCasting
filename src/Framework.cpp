@@ -1,8 +1,9 @@
 #include "PCH.h"
 #include "framework.h"
+#include "AutoTest.h"
 #define TOML_EXCEPTIONS 0
 #include <toml++/toml.h>
-#include "Expression.h"
+// "Expression.h" is not in the public repository and nothing from it is used here
 
 void Loki::DynamicAnimationCasting::ReadToml(std::filesystem::path path) {
     logger::info("Reading {}...", path.string());
@@ -320,6 +321,17 @@ RE::BSEventNotifyControl Loki::DynamicAnimationCasting::ProcessEvent(RE::BSTEven
         #ifdef _DEBUG
         logger::info("{} {}", a_event.tag.c_str(), a_event.payload.c_str());
         #endif
+        if (AutoTest::Active()) {
+            // self test in progress: only the built-in test trigger runs, for every animation event
+            // (a test trigger without a tag runs on every event; one with a tag is matched like a real trigger)
+            if (auto testTrigger = AutoTest::ActiveTrigger(actor)) {
+                if (testTrigger->tag.empty() || a_event.tag == testTrigger->tag) {
+                    AutoTest::NoteInvocation();
+                    testTrigger->Invoke(actor);
+                }
+            }
+            return RE::BSEventNotifyControl::kContinue;
+        }
         GroupCounterType groups;
         for (auto& trigger : DynamicAnimationCasting::CastTriggers) {
             // BSFixedString::operator== is just a pointer compare, super efficient
@@ -388,11 +400,11 @@ int Loki::DynamicAnimationCasting::SetMagicFavourite(int Index) {
     const auto& favSpells = RE::MagicFavorites::GetSingleton()->spells;
     if (Index < 0 || Index >= favSpells.size()) {
         MagicFavouriteIndex = -1;
-        RE::DebugNotification("Selected Spell : None");
+        RE::SendHUDMessage::ShowHUDMessage("Selected Spell : None");
     } else {
         MagicFavouriteIndex = Index;
         auto message = fmt::format("Selected Spell : {}", favSpells[Index]->GetName());
-        RE::DebugNotification(message.c_str());
+        RE::SendHUDMessage::ShowHUDMessage(message.c_str());
     }
     return MagicFavouriteIndex;
 }

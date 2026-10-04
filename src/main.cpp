@@ -1,6 +1,7 @@
 ﻿#include "PCH.h"
 #include "DynamicAnimationCasting.h"
 #include "Framework.h"
+#include "AutoTest.h"
 #include <stddef.h>
 
 using namespace RE::BSScript;
@@ -166,6 +167,7 @@ namespace {
                         // It is now safe to access form data.
                         InitializeHooking();
                         Loki::DynamicAnimationCasting::LoadTomls();
+                        Loki::AutoTest::Install();
                         break;
 
                     // Skyrim game events.

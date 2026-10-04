@@ -1,155 +1,75 @@
 cmake_minimum_required(VERSION 3.21)
-message("Using toolchain file ${CMAKE_TOOLCHAIN_FILE}.")
 
-########################################################################################################################
-## Define project
-########################################################################################################################
 project(
-        DynamicAnimationCasting
-        VERSION 3.2.3
-        DESCRIPTION "A SKSE plugin to trigger spell on animation notify."
-        LANGUAGES CXX)
+    DynamicAnimationCasting
+    VERSION 3.2.5
+    DESCRIPTION "A SKSE plugin to trigger spells on animation events."
+    LANGUAGES CXX)
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
 
-include(GNUInstallDirs)
+if("${PROJECT_SOURCE_DIR}" STREQUAL "${PROJECT_BINARY_DIR}")
+    message(FATAL_ERROR "in-source builds are not allowed")
+endif()
+
+# ---- CommonLibSSE-NG (GPL-3.0-or-later), built from source for SE + AE ----
+#
+# Pinned to v10.1.0. Pass -DCOMMONLIB_DIR=<path> to use an existing checkout instead of downloading.
+
+set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(ENABLE_SKYRIM_VR OFF CACHE BOOL "" FORCE)
+
+if(DEFINED COMMONLIB_DIR)
+    add_subdirectory("${COMMONLIB_DIR}" CommonLibSSE EXCLUDE_FROM_ALL)
+    include("${COMMONLIB_DIR}/cmake/CommonLibSSE.cmake")
+else()
+    include(FetchContent)
+    FetchContent_Declare(
+        CommonLibSSE
+        GIT_REPOSITORY https://github.com/alandtse/CommonLibSSE-NG.git
+        GIT_TAG 39f9d07a6ffabea8fb559eee87ab7d27cd463e8a # v10.1.0
+        EXCLUDE_FROM_ALL)
+    FetchContent_MakeAvailable(CommonLibSSE)
+    include("${commonlibsse_SOURCE_DIR}/cmake/CommonLibSSE.cmake")
+endif()
+
+find_package(spdlog CONFIG REQUIRED)
+find_package(fmt CONFIG REQUIRED)
+
+# toml++ is used header-only: the plugin sets TOML_EXCEPTIONS=0, which the prebuilt library does not provide
+find_path(TOMLPP_INCLUDE_DIR "toml++/toml.h" REQUIRED)
+
+# ---- Plugin ----
 
 configure_file(
-        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/version.rc.in
-        ${CMAKE_CURRENT_BINARY_DIR}/version.rc
-        @ONLY)
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/version.rc.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/version.rc"
+    @ONLY)
 
-set(headers)
-
-set(sources
+add_commonlibsse_plugin(
+    ${PROJECT_NAME}
+    AUTHOR ArcEarth
+    SOURCES
         src/main.cpp
-        src/Framework.cpp
-        src/Framework.h
         src/DynamicAnimationCasting.cpp
         src/DynamicAnimationCasting.h
-        ${CMAKE_CURRENT_BINARY_DIR}/version.rc)
+        src/Framework.cpp
+        src/Framework.h
+        src/AutoTest.cpp
+        src/AutoTest.h
+        src/PCH.h
+        "${CMAKE_CURRENT_BINARY_DIR}/version.rc")
 
-set(tests
-        test/FrameworkTest.cpp)
+set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "loki_DynamicAnimationCasting")
 
-source_group(
-        TREE ${CMAKE_CURRENT_SOURCE_DIR}
-        FILES
-        ${headers}
-        ${sources}
-        ${tests})
-
-#########################################################################################################################
-### Build options
-#########################################################################################################################
-message("Options:")
-option(BUILD_TESTS "Build unit tests." OFF)
-message("\tTests: ${BUILD_TESTS}")
-
-########################################################################################################################
-## Configure target DLL
-########################################################################################################################
-find_package(CommonLibSSE CONFIG REQUIRED)
-find_package(span-lite CONFIG REQUIRED)
-# find_package(xbyak CONFIG REQUIRED)
-find_package(tomlplusplus CONFIG REQUIRED)
-
-set(ADD_COMMONLIBSSE_PLUGIN_AUTHOR "ArcEarth" CACHE STRING "Author of the plugin")
-add_commonlibsse_plugin(${PROJECT_NAME} SOURCES ${headers} ${sources})
-add_library("${PROJECT_NAME}::${PROJECT_NAME}" ALIAS "${PROJECT_NAME}")
-
-target_include_directories(${PROJECT_NAME}
-        PRIVATE
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/src>
-        $<INSTALL_INTERFACE:src>
-)
-
-target_include_directories(${PROJECT_NAME}
-        PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-
-target_link_libraries(${PROJECT_NAME}
-        PRIVATE
-        tomlplusplus::tomlplusplus
-        #xbyak::xbyak
-        nonstd::span-lite
-)
-
-target_precompile_headers(${PROJECT_NAME}
-        PRIVATE
-        src/PCH.h)
-
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/Sample"
-        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
-
-install(TARGETS ${PROJECT_NAME}
-        DESTINATION "${CMAKE_INSTALL_LIBDIR}")
-
-########################################################################################################################
-## Configure unit tests
-########################################################################################################################
-if(BUILD_TESTS)
-    find_package(Catch2 CONFIG REQUIRED)
-
-    include(CTest)
-    include(Catch)
-
-    add_executable(
-            ${PROJECT_NAME}Tests
-            ${headers}
-            ${tests})
-
-    target_link_libraries(
-            ${PROJECT_NAME}Tests
-            PRIVATE
-            ${PROJECT_NAME}
-            Catch2::Catch2WithMain)
-
-    target_precompile_headers(${PROJECT_NAME}Tests
-            PRIVATE
-            src/PCH.h)
-
-    catch_discover_tests(${PROJECT_NAME}Tests)
-    add_test(NAME ${PROJECT_NAME}Tests COMMAND ${PROJECT_NAME}Tests)
+# Test build: adds the DynAnimTest console command (in-game self test of the HUD flash fix). Never release it.
+option(DAC_AUTOTEST "Build the in-game self test into the plugin" OFF)
+if(DAC_AUTOTEST)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE DAC_AUTOTEST=1)
 endif()
-
-########################################################################################################################
-## Automatic plugin deployment
-########################################################################################################################
-# Automatic deployment to FOMOD directory.
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    set(BUILD_NAME "Debug")
-else()
-    set(BUILD_NAME "Release")
-endif()
-install(DIRECTORY DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/Papyrus${BUILD_NAME}/")
-add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/Plugin${BUILD_NAME}/")
-add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/Plugin${BUILD_NAME}/")
-if(${CMAKE_BUILD_TYPE} STREQUAL Debug OR ${CMAKE_BUILD_TYPE} STREQUAL RelWithDebInfo)
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:${PROJECT_NAME}> "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/Plugin${BUILD_NAME}/")
-endif()
-file(GLOB_RECURSE OUTPUT_DLLS "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/**/*.dll")
-file(GLOB_RECURSE OUTPUT_PDBS "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/**/*.pdb")
-file(GLOB_RECURSE OUTPUT_SCRIPTS "${CMAKE_CURRENT_SOURCE_DIR}/contrib/Distribution/**/*.pex")
-set_property(TARGET ${PROJECT_NAME}
-        APPEND PROPERTY ADDITIONAL_CLEAN_FILES "${OUTPUT_DLLS}")
-set_property(TARGET ${PROJECT_NAME}
-        APPEND PROPERTY ADDITIONAL_CLEAN_FILES "${OUTPUT_PDBS}")
-set_property(TARGET ${PROJECT_NAME}
-        APPEND PROPERTY ADDITIONAL_CLEAN_FILES "${OUTPUT_SCRIPTS}")
-
-# Automatic deployment to Mod Organizer 2 mod directory.
-foreach(DEPLOY_TARGET $ENV{CommonLibSSESamplePluginTargets})
-    message("Adding deployment target ${DEPLOY_TARGET}.")
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> "${DEPLOY_TARGET}/SKSE/Plugins/")
-    if(${CMAKE_BUILD_TYPE} STREQUAL Debug OR ${CMAKE_BUILD_TYPE} STREQUAL RelWithDebInfo)
-        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:${PROJECT_NAME}> "${DEPLOY_TARGET}/SKSE/Plugins/")
-    endif()
-endforeach()
+target_compile_definitions(${PROJECT_NAME} PRIVATE UNICODE _UNICODE NOMINMAX _AMD64_ WIN32_LEAN_AND_MEAN TOML_HEADER_ONLY=1)
+target_compile_options(${PROJECT_NAME} PRIVATE /bigobj /utf-8)
+target_include_directories(${PROJECT_NAME} PRIVATE src "${TOMLPP_INCLUDE_DIR}")
+target_link_libraries(${PROJECT_NAME} PRIVATE spdlog::spdlog fmt::fmt)
+target_precompile_headers(${PROJECT_NAME} PRIVATE src/PCH.h)

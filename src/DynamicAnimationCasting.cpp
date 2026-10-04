@@ -1,9 +1,11 @@
 #include "PCH.h"
 #include "DynamicAnimationCasting.h"
 #include "Framework.h"
+#include "AutoTest.h"
 #include <random>
 
 void Loki::HUD::FlashHUDMeter(RE::ActorValue a_av) {
+    AutoTest::NoteRealFlash();
     static REL::Relocation<decltype(FlashHUDMeter)> FlashHUDMenuMeter{RELOCATION_ID(51907, 52845)};
     return FlashHUDMenuMeter(a_av);
 }
@@ -112,6 +114,7 @@ bool Loki::AnimationCasting::CastTrigger::Invoke(const RE::Actor* a_caster)
     if (!actor) {
         return false;
     }
+    AutoTest::ActorScope testScope(actor);
 
     // faster rejection for player only event
     if (!CheckFormID(caster, [&]() { return actor->formID; }) ||
@@ -142,20 +145,26 @@ bool Loki::AnimationCasting::CastTrigger::Invoke(const RE::Actor* a_caster)
     }
     const RE::Actor::ACTOR_RUNTIME_DATA& actorRD = actor->GetActorRuntimeData();
 
-    if (staminaCost > 0.f && actorAV->GetActorValue(RE::ActorValue::kStamina) < staminaCost) {
-        HUD::FlashHUDMeter(RE::ActorValue::kStamina);
-        return false;
-    }
+    // The HUD meters belong to the player: never flash them for NPC casters, and only flash once every
+    // other condition of this trigger has passed (otherwise unrelated triggers make the bars blink).
+    const bool isPlayer = actor->IsPlayerRef();
+    auto FlashMeter = [isPlayer](RE::ActorValue a_av) {
+        if (isPlayer) {
+            HUD::FlashHUDMeter(a_av);
+        }
+    };
 
-    if (healthCost > 0.f && actorAV->GetActorValue(RE::ActorValue::kHealth) < healthCost) {
-        HUD::FlashHUDMeter(RE::ActorValue::kHealth);
-        return false;
-    }
-
+    std::optional<RE::ActorValue> lackingValue;
     float actorMagicka = actorAV->GetActorValue(RE::ActorValue::kMagicka);
-    if (magickaCost > 0.f && actorMagicka < magickaCost) {
-        HUD::FlashHUDMeter(RE::ActorValue::kMagicka);
-        return false;
+    if (staminaCost > 0.f && actorAV->GetActorValue(RE::ActorValue::kStamina) < staminaCost) {
+        lackingValue = RE::ActorValue::kStamina;
+    } else if (healthCost > 0.f && actorAV->GetActorValue(RE::ActorValue::kHealth) < healthCost) {
+        lackingValue = RE::ActorValue::kHealth;
+    } else if (magickaCost > 0.f && actorMagicka < magickaCost) {
+        lackingValue = RE::ActorValue::kMagicka;
+    }
+    if (lackingValue) {
+        AutoTest::NoteLegacyFlash(actor);  // the original code flashed here
     }
 
     if (chance < 1.f) {
@@ -178,10 +187,10 @@ bool Loki::AnimationCasting::CastTrigger::Invoke(const RE::Actor* a_caster)
     auto CastSpells = [&](RE::MagicSystem::CastingSource source, float magnitude, bool dual_casting) -> bool {
         // logger::info("Passed all conditional checks, subtracting costs and casting spells now...");
         if (healthCost != 0.f && actorAV) {
-            actorAV->RestoreActorValue(RE::ACTOR_VALUE_MODIFIER::kDamage, RE::ActorValue::kHealth, healthCost * -1.00f);
+            actorAV->ModActorValue(RE::ACTOR_VALUE_MODIFIER::kDamage, RE::ActorValue::kHealth, healthCost * -1.00f);
         }
         if (staminaCost != 0.f && actorAV) {
-            actorAV->RestoreActorValue(RE::ACTOR_VALUE_MODIFIER::kDamage, RE::ActorValue::kStamina, staminaCost * -1.00f);
+            actorAV->ModActorValue(RE::ACTOR_VALUE_MODIFIER::kDamage, RE::ActorValue::kStamina, staminaCost * -1.00f);
         }
         float totalMagikaCost = this->magickaCost;
 
@@ -223,7 +232,8 @@ bool Loki::AnimationCasting::CastTrigger::Invoke(const RE::Actor* a_caster)
 
             float spellCost = spell->CalculateMagickaCost(actor) * this->castMagickaCostFactor;
             if (actorMagicka < totalMagikaCost + spellCost) {
-                HUD::FlashHUDMeter(RE::ActorValue::kMagicka);
+                AutoTest::NoteLegacyFlash(actor);  // the original code flashed here
+                FlashMeter(RE::ActorValue::kMagicka);
                 return false;
             }
             totalMagikaCost += spellCost;
@@ -245,6 +255,7 @@ bool Loki::AnimationCasting::CastTrigger::Invoke(const RE::Actor* a_caster)
                                             targetSelf ? nullptr : actor  // cause
             );
             casted++;
+            AutoTest::NoteCast();
             return true;
         };
 
@@ -330,7 +341,8 @@ bool Loki::AnimationCasting::CastTrigger::Invoke(const RE::Actor* a_caster)
         // Deduce the final magicka cost
         CAST_SPELLS_END:
         if (totalMagikaCost != 0.f && actorAV) {
-            actorAV->RestoreActorValue(RE::ACTOR_VALUE_MODIFIER::kDamage, RE::ActorValue::kMagicka, totalMagikaCost * -1.00f);
+            AutoTest::NoteMagickaSpent(totalMagikaCost);
+            actorAV->ModActorValue(RE::ACTOR_VALUE_MODIFIER::kDamage, RE::ActorValue::kMagicka, totalMagikaCost * -1.00f);
         }
 
         return casted;
@@ -357,6 +369,11 @@ bool Loki::AnimationCasting::CastTrigger::Invoke(const RE::Actor* a_caster)
             if (weapons[hand].keyword && !HasKeyword(equipment, weapons[hand].keyword)) continue;
 
             if (weapons[hand].cast) {
+                if (lackingValue) {
+                    FlashMeter(*lackingValue);
+                    return false;
+                }
+
                 float magnitudeModifier = baseMagnitude;
                 if (enchantment && weapons[hand].enchantMagnitudeFactor != 0.f) {
                     if (auto effect = enchantment->GetCostliestEffectItem()) {
@@ -372,6 +389,11 @@ bool Loki::AnimationCasting::CastTrigger::Invoke(const RE::Actor* a_caster)
         }
         return casted;
     } else {
+        if (lackingValue) {
+            FlashMeter(*lackingValue);
+            return false;
+        }
+
         if (cooldown > 0 && !DynamicAnimationCasting::UpdateTriggerCooldown(cooldown, this, actor)) {
             return false;
         }

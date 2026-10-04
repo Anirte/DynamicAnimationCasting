@@ -1,7 +1,7 @@
 #pragma once
 #define NOMINMAX
 #define TRUEHUD_API_COMMONLIB
-#include <Windows.h>
+// <Windows.h> must not precede CommonLibSSE-NG headers
 
 #include <RE/Skyrim.h>
 #include <SKSE/SKSE.h>
